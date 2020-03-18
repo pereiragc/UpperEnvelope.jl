@@ -142,16 +142,34 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear})
         end
     end
 
-    while get_x(pl_funcs[1], v_idx_visit[1]) == get_x(pl_funcs[2], v_idx_visit[2])
-        if get_y(pl_funcs[1], 1) > get_y(pl_funcs[2], 1)
-
+    n_iter=1
+    reached_maxlen = false
+    while  !reached_maxlen && (get_x(pl_funcs[1], v_idx_visit[1]) == get_x(pl_funcs[2], v_idx_visit[2]))
+        if get_y(pl_funcs[1], v_idx_visit[1]) > get_y(pl_funcs[2], v_idx_visit[2])
             envelope[i_env]=pl_funcs[1][v_idx_visit[1]]; i_env += 1
+
         else
             envelope[i_env]=pl_funcs[2][v_idx_visit[2]]; i_env += 1
         end
-        inc_counter!(v_idx_visit)
+
+        reached_maxlen = v_idx_visit[1] == length(pl_funcs[1]) || v_idx_visit[2] == length(pl_funcs[2])
+
+        if !reached_maxlen
+            i_env += segment_intersect!(envelope, i_env,
+                                        pl_funcs[1][n_iter], pl_funcs[1][n_iter+1],
+                                        pl_funcs[2][n_iter], pl_funcs[2][n_iter+1])
+            inc_counter!(v_idx_visit)
+        end
+
+
+
+
+        n_iter += 1
     end
 
+    if reached_maxlen
+        return envelope
+    end
 
     @inbounds seg_state = determine_first(pl_funcs, v_idx_visit)
 
@@ -274,4 +292,10 @@ function segment_intersect!(v_store, pos_store, sco, ptA1, ptA2, ptB1, ptB2)
     end
 
     return r
+end
+
+segment_intersect!(v_store, pos_store, ptA1, ptA2, ptB1, ptB2)=begin
+    segment_intersect!(v_store, pos_store,
+                       inner_rotate(ptB1-ptA1, ptA2-ptA1),
+                       ptA1, ptA2, ptB1, ptB2)
 end
