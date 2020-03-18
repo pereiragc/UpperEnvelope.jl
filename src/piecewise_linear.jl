@@ -6,6 +6,29 @@
 # ---------------------------------
 
 
+"""
+# Piecewise linear function
+
+    mutable struct PiecewiseLinear{T}
+      xcoords::Vector{T}
+      ycoords::Vector{T}
+    end
+
+The purpose is to represent "piecewise linear" functions by storing the x and y
+coordinates of the points that define them. The i-th point has x coordinate
+xcoords[i], and y coordinate `ycoords[i]`
+
+Convenience methods `Base.getindex` and `Base.setindex!` are defined for this
+type. Accessing index `i` returns x and y coordinates grouped in a
+UpperEnvelope.Point2 type. That type should also be used for insertion.
+
+
+## Assumptions
+**The field `xcoords` should be ordered.** Moreover, `xcoords` and `ycoords`
+must be of the same length.
+
+
+"""
 mutable struct PiecewiseLinear{T}
     xcoords::Vector{T}
     ycoords::Vector{T}
