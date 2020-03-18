@@ -32,6 +32,10 @@ must be of the same length.
 mutable struct PiecewiseLinear{T}
     xcoords::Vector{T}
     ycoords::Vector{T}
+    function PiecewiseLinear(xcoords, ycoords)
+        length(xcoords) != length(ycoords) && error("x and y coordinates must have the same length")
+        new{eltype(xcoords)}(xcoords, ycoords)
+    end
 end
 
 # These methods contribute very little, except for readability later on.
