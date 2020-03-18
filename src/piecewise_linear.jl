@@ -160,19 +160,13 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear})
                                         pl_funcs[2][n_iter], pl_funcs[2][n_iter+1])
             inc_counter!(v_idx_visit)
         end
-
-
-
-
         n_iter += 1
     end
 
     if reached_maxlen
         return envelope
     end
-
     @inbounds seg_state = determine_first(pl_funcs, v_idx_visit)
-
 
     @inbounds while (v_idx_visit[1] <= length(pl_funcs[1])) && (v_idx_visit[2] <= length(pl_funcs[2]))
         @inbounds i_curr = v_idx_visit[seg_state]
@@ -204,10 +198,8 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear})
 
     end
 
-
-    # Now finalize by adding all leftmost nodes
+    # Now finalize by adding all rightmost nodes
     while v_idx_visit[seg_state] <= length(pl_funcs[seg_state])
-
         envelope[i_env]=pl_funcs[seg_state][v_idx_visit[seg_state]]
         inc_counter!(v_idx_visit, seg_state)
     end
