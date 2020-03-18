@@ -1,7 +1,5 @@
 module UpperEnvelope
 
-using Markdown
-
 export PiecewiseLinear
 export compute_envelope
 
