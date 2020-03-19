@@ -2,7 +2,7 @@
 
 ![Example](examples/example.png)
 
-This package provides the function `compute_envelope`, which computes (a representation of) the "maximum" between two irregularly defined piecewise linear functions with bounded support in R^2.
+This package provides the function `compute_envelope`, which computes (a representation of) the "maximum" between two irregularly defined piecewise linear functions with bounded 1d support.
 
 Each function is represented by a collection of `(x,y)` points. The result is not *exactly* a maximum because of the behavior in non-intersecting parts of the domain, as seen in the last two points. (For the particular use case this package was designed for, this behavior is desirable, so I won't implement the exact maximum any time soon. PRs welcome.)
 

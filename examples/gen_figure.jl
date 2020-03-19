@@ -8,8 +8,8 @@ v1 = [4.1, 0.5, 5., 4.2, 2.]
 k2 = [2.3, 2.6, 3.8, 4.1, 4.8, 5.4]
 v2 = [5.0, 0., 9.5, 3., 4.2, -2.]
 
-segments = (PiecewiseLinear(copy(k1), copy(v1)), PiecewiseLinear(copy(k2), copy(v2)))
-envelope = compute_envelope(segments)
+segments = (PiecewiseLinear(k1, v1), PiecewiseLinear(k2, v2))
+envelope = compute_envelope(segments, false)
 
 # Plot example (too lazy to make code prettier)
 p0=plot(k1, v1, marker=(:black), line=(:black), label="Function 1")

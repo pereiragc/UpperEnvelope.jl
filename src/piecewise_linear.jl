@@ -1,7 +1,7 @@
 # ---------------------------------
 # PIECEWISE LINEAR UPPER ENVELOPE |
 # ____________________ __________ |
-# Code written by Gustavo Pereira |
+#    Author: Gustavo Pereira      |
 #   Columbia University, 2020     |
 # ---------------------------------
 
@@ -39,22 +39,25 @@ mutable struct PiecewiseLinear{T}
 end
 
 # These methods contribute very little, except for readability later on.
-@inline Base.eltype(seg::PiecewiseLinear{T}) where T=T
-@inline Base.length(seg::PiecewiseLinear)=length(seg.xcoords)
-@inline Base.first(seg::PiecewiseLinear)=first(seg.xcoords)
-@inline Base.last(seg::PiecewiseLinear)=last(seg.xcoords)
-@inline Base.zero(seg::PiecewiseLinear{T}) where T=zero(T)
-@inline get_x(seg::PiecewiseLinear, i)=seg.xcoords[i]
-function set_x!(seg, i, x)
-    seg.xcoords[i]=x
+@inline Base.eltype(fun::PiecewiseLinear{T}) where T=T
+@inline Base.length(fun::PiecewiseLinear)=length(fun.xcoords)
+@inline Base.first(fun::PiecewiseLinear)=first(fun.xcoords)
+@inline Base.last(fun::PiecewiseLinear)=last(fun.xcoords)
+@inline Base.zero(fun::PiecewiseLinear{T}) where T=zero(T)
+@inline get_x(fun::PiecewiseLinear, i)=fun.xcoords[i]
+function set_x!(fun, i, x)
+    fun.xcoords[i]=x
     nothing
 end
-@inline get_y(seg::PiecewiseLinear, i)=seg.ycoords[i]
-function set_y!(seg, y, i)
-    seg.values[i]=y
+@inline get_y(fun::PiecewiseLinear, i)=fun.ycoords[i]
+function set_y!(fun, y, i)
+    fun.values[i]=y
     nothing
 end
-Base.@propagate_inbounds @inline Base.getindex(seg::PiecewiseLinear, i)=Point2(get_x(seg, i), get_y(seg, i))
+Base.@propagate_inbounds @inline Base.getindex(fun::PiecewiseLinear, i)=Point2(get_x(fun, i), get_y(fun, i))
+Base.resize!(fun::PiecewiseLinear, n)=begin
+    resize!(fun.xcoords, n);resize!(fun.ycoords, n);
+end
 
 
 
@@ -72,9 +75,9 @@ struct Point2{T}
 end
 @inline get_x(pt::Point2)=pt.x
 @inline get_y(pt::Point2)=pt.y
-@inline Base.setindex!(seg::PiecewiseLinear, pt, i)=begin
-    seg.xcoords[i]=pt.x
-    seg.ycoords[i]=pt.y
+@inline Base.setindex!(fun::PiecewiseLinear, pt, i)=begin
+    fun.xcoords[i]=pt.x
+    fun.ycoords[i]=pt.y
 end
 
 
@@ -115,43 +118,33 @@ When all comparison segments are analysed, switch the states between functions:
 the benchmark function becomes the comparison one and vice-versa. If this step
 is ignored, intersections **will be** overlooked.
 """
-function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear})
+function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear}, remove_nan=true)
     envsize_max = length(pl_funcs[1]) + length(pl_funcs[2]) +
         max(length(pl_funcs[1]), length(pl_funcs[2]))
     envelope = PiecewiseLinear(map(k -> fill(NaN, envsize_max), (1,2))...)
 
-
     @inbounds seg_state = determine_first(pl_funcs)
     v_idx_visit = [1, 1]
-
     i_env = 1
 
-
+    # Deal the left part of (possibly) non-intersecting domains
     while is_lower_x(pl_funcs, seg_state, v_idx_visit)
         if v_idx_visit[seg_state] < length(pl_funcs[seg_state])
-
-            this_segment = pl_funcs[seg_state]
             this_ind = v_idx_visit[seg_state]
-
-            pt = this_segment[this_ind]
-
+            pt = pl_funcs[seg_state][this_ind]
             envelope[i_env]=pt; i_env += 1
-
-
-            # Increase counter for current segment & insert points in envelope
-
             inc_counter!(v_idx_visit, seg_state)
         else
             break
         end
     end
 
+    # Equal values of x in the beginning ('regular' points)
     n_iter=1
     reached_maxlen = false
     while  !reached_maxlen && (get_x(pl_funcs[1], v_idx_visit[1]) == get_x(pl_funcs[2], v_idx_visit[2]))
         if get_y(pl_funcs[1], v_idx_visit[1]) > get_y(pl_funcs[2], v_idx_visit[2])
             envelope[i_env]=pl_funcs[1][v_idx_visit[1]]; i_env += 1
-
         else
             envelope[i_env]=pl_funcs[2][v_idx_visit[2]]; i_env += 1
         end
@@ -170,8 +163,9 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear})
     if reached_maxlen
         return envelope
     end
-    @inbounds seg_state = determine_first(pl_funcs, v_idx_visit)
 
+    # Irregular x values
+    @inbounds seg_state = determine_first(pl_funcs, v_idx_visit)
     @inbounds while (v_idx_visit[1] <= length(pl_funcs[1])) && (v_idx_visit[2] <= length(pl_funcs[2]))
         @inbounds i_curr = v_idx_visit[seg_state]
         @inbounds i_other = v_idx_visit[other(seg_state)]
@@ -204,13 +198,21 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear})
 
     # Now finalize by adding all rightmost nodes
     while v_idx_visit[seg_state] <= length(pl_funcs[seg_state])
-        envelope[i_env]=pl_funcs[seg_state][v_idx_visit[seg_state]]
+        envelope[i_env]=pl_funcs[seg_state][v_idx_visit[seg_state]]; i_env += 1
         inc_counter!(v_idx_visit, seg_state)
     end
 
+    # Remove NaN entries if specified
+    remove_nan && resize!(envelope, i_env-1)
     return envelope
 end
 
+
+compute_envelope(tup_pts1, tup_pts2, remove_nan=true)=begin
+    compute_envelope(PiecewiseLinear(tup_pts1...),
+                     PiecewiseLinear(tup_pts2...),
+                     remove_nan)
+end
 
 
 
@@ -225,7 +227,10 @@ inc_counter!(v_idx)=begin
 end
 
 
-" "
+"""
+Check that the x value is lower for the current than the alternative state at
+indexes given by v_idx_visit.
+"""
 function is_lower_x(pl_funcs, seg_state, v_idx_visit)
     seg_other = other(seg_state)
 
