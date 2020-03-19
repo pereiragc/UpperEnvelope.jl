@@ -58,6 +58,7 @@ Base.@propagate_inbounds @inline Base.getindex(fun::PiecewiseLinear, i)=Point2(g
 Base.resize!(fun::PiecewiseLinear, n)=begin
     resize!(fun.xcoords, n);resize!(fun.ycoords, n);
 end
+Base.Tuple(fun::PiecewiseLinear)=(fun.xcoords, fun.ycoords)
 
 
 
@@ -209,9 +210,8 @@ end
 
 
 compute_envelope(tup_pts1, tup_pts2, remove_nan=true)=begin
-    compute_envelope(PiecewiseLinear(tup_pts1...),
-                     PiecewiseLinear(tup_pts2...),
-                     remove_nan)
+    Tuple(compute_envelope((PiecewiseLinear(tup_pts1...), PiecewiseLinear(tup_pts2...)),
+                           remove_nan))
 end
 
 
