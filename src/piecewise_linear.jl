@@ -111,7 +111,7 @@ type PiecewiseLinear.
 
 Modulo dealing with the non-intersecting part of domains, the idea is to fix a
 pair of points (i.e., a segment) in one of the functions -- call it "benchmark"
--- and analyse all segments of the other function -- call it "comparison" -- in
+-- and analyse all segments of the other function -- call it "comparison" --
 within that segment. It is easy to check whether the subsegments are "dominated"
 or not, and to compute intersections.
 
