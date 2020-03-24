@@ -9,11 +9,7 @@
 abstract type AbstractPiecewiseLinear{T} end
 @inline Base.length(fun::AbstractPiecewiseLinear)=length(get_x(fun))
 @inline Base.eltype(fun::AbstractPiecewiseLinear{T}) where T=T
-@inline Base.zero(fun::AbstractPiecewiseLinear{T}) where T=zero(T)
 Base.Tuple(fun::AbstractPiecewiseLinear)=(get_x(fun), get_y(fun))
-Base.resize!(fun::AbstractPiecewiseLinear, n)=begin
-    resize!(get_x(fun), n);resize!(get_y(fun), n);
-end
 
 """
 # Piecewise linear function
@@ -61,6 +57,14 @@ function set_y!(fun::PiecewiseLinear, y, i)
     nothing
 end
 Base.@propagate_inbounds @inline Base.getindex(fun::PiecewiseLinear, i)=Point2(get_x(fun, i), get_y(fun, i))
+Base.resize!(fun::PiecewiseLinear, n)=begin
+    resize!(get_x(fun), n);resize!(get_y(fun), n);
+    nothing
+end
+function init_zeros(::Type{PiecewiseLinear{T}}, n) where T
+    PiecewiseLinear(fill(zero(T), n), fill(zero(T), n))
+end
+
 
 
 mutable struct ExtendedPiecewiseLinear{T, N} <: AbstractPiecewiseLinear{T}
@@ -74,6 +78,22 @@ end
 @inline get_y(fun::ExtendedPiecewiseLinear, i)=get_y(fun.fun_pl, i)
 @inline set_y!(fun::ExtendedPiecewiseLinear, i, y)=set_y!(fun.fun_pl, i, y)
 Base.@propagate_inbounds @inline Base.getindex(fun::ExtendedPiecewiseLinear, i)=getindex(fun.fun_pl, i)
+Base.resize!(fun::ExtendedPiecewiseLinear, n)=begin
+    resize!(fun.fun_pl, n);
+    map(fun.subordinate_vectors) do x
+        resize!(x, n)
+    end
+    nothing
+end
+function init_zeros(::Type{ExtendedPiecewiseLinear{T, N}}, n) where {T, N}
+    pl = init_zeros(PiecewiseLinear{T}, n)
+    subord = ntuple(Val(N)) do _
+        fill(zero(T), n)
+    end
+    ExtendedPiecewiseLinear{T,N}(pl, subord)
+end
+
+
 
 
 """
@@ -133,10 +153,12 @@ When all comparison segments are analysed, switch the states between functions:
 the benchmark function becomes the comparison one and vice-versa. If this step
 is ignored, intersections **will be** overlooked.
 """
-function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear}, remove_nan=true)
+function compute_envelope(pl_funcs::NTuple{2, T}, remove_nan=true) where T <: AbstractPiecewiseLinear
     envsize_max = length(pl_funcs[1]) + length(pl_funcs[2]) +
         max(length(pl_funcs[1]), length(pl_funcs[2]))
-    envelope = PiecewiseLinear(map(k -> fill(NaN, envsize_max), (1,2))...)
+
+    envelope = init_zeros(T, envsize_max)
+    #  ^ Initialize an instance of piecewise linear with size envsize_max, filled with NaN
 
     @inbounds seg_state = determine_first(pl_funcs)
     v_idx_visit = [1, 1]
@@ -158,11 +180,13 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear}, remove_nan=true)
     n_iter=1
     reached_maxlen = false
     while  !reached_maxlen && (get_x(pl_funcs[1], v_idx_visit[1]) == get_x(pl_funcs[2], v_idx_visit[2]))
-        if get_y(pl_funcs[1], v_idx_visit[1]) > get_y(pl_funcs[2], v_idx_visit[2])
-            envelope[i_env]=pl_funcs[1][v_idx_visit[1]]; i_env += 1
-        else
-            envelope[i_env]=pl_funcs[2][v_idx_visit[2]]; i_env += 1
-        end
+
+        first_is_better = get_y(pl_funcs[1], v_idx_visit[1]) >
+            get_y(pl_funcs[2], v_idx_visit[2])
+
+        envelope[i_env] = ifelse(first_is_higher, pl_funcs[1][v_idx_visit[1]],
+                                 pl_funcs[2][v_idx_visit[2]])
+        i_env += 1
 
         reached_maxlen = v_idx_visit[1] == length(pl_funcs[1]) || v_idx_visit[2] == length(pl_funcs[2])
 
