@@ -6,6 +6,15 @@
 # ---------------------------------
 
 
+abstract type AbstractPiecewiseLinear{T} end
+@inline Base.length(fun::AbstractPiecewiseLinear)=length(get_x(fun))
+@inline Base.eltype(fun::AbstractPiecewiseLinear{T}) where T=T
+@inline Base.zero(fun::AbstractPiecewiseLinear{T}) where T=zero(T)
+Base.Tuple(fun::AbstractPiecewiseLinear)=(get_x(fun), get_y(fun))
+Base.resize!(fun::AbstractPiecewiseLinear, n)=begin
+    resize!(get_x(fun), n);resize!(get_y(fun), n);
+end
+
 """
 # Piecewise linear function
 
@@ -29,7 +38,7 @@ must be of the same length.
 
 
 """
-mutable struct PiecewiseLinear{T}
+mutable struct PiecewiseLinear{T} <: AbstractPiecewiseLinear{T}
     xcoords::Vector{T}
     ycoords::Vector{T}
     function PiecewiseLinear(xcoords, ycoords)
@@ -39,27 +48,32 @@ mutable struct PiecewiseLinear{T}
 end
 
 # These methods contribute very little, except for readability later on.
-@inline Base.eltype(fun::PiecewiseLinear{T}) where T=T
-@inline Base.length(fun::PiecewiseLinear)=length(fun.xcoords)
-@inline Base.first(fun::PiecewiseLinear)=first(fun.xcoords)
-@inline Base.last(fun::PiecewiseLinear)=last(fun.xcoords)
-@inline Base.zero(fun::PiecewiseLinear{T}) where T=zero(T)
 @inline get_x(fun::PiecewiseLinear, i)=fun.xcoords[i]
-function set_x!(fun, i, x)
+@inline get_x(fun::PiecewiseLinear)=fun.xcoords
+function set_x!(fun::PiecewiseLinear, i, x)
     fun.xcoords[i]=x
     nothing
 end
 @inline get_y(fun::PiecewiseLinear, i)=fun.ycoords[i]
-function set_y!(fun, y, i)
+@inline get_y(fun::PiecewiseLinear)=fun.ycoords
+function set_y!(fun::PiecewiseLinear, y, i)
     fun.values[i]=y
     nothing
 end
 Base.@propagate_inbounds @inline Base.getindex(fun::PiecewiseLinear, i)=Point2(get_x(fun, i), get_y(fun, i))
-Base.resize!(fun::PiecewiseLinear, n)=begin
-    resize!(fun.xcoords, n);resize!(fun.ycoords, n);
-end
-Base.Tuple(fun::PiecewiseLinear)=(fun.xcoords, fun.ycoords)
 
+
+mutable struct ExtendedPiecewiseLinear{T, N} <: AbstractPiecewiseLinear{T}
+    fun_pl::PiecewiseLinear{T}
+    subordinate_vectors::NTuple{N, Vector{T}}
+end
+@inline get_x(fun::ExtendedPiecewiseLinear)=get_x(fun.fun_pl)
+@inline get_x(fun::ExtendedPiecewiseLinear, i)=get_x(fun.fun_pl, i)
+@inline set_x!(fun::ExtendedPiecewiseLinear, i, x)=set_x!(fun.fun_pl, i, x)
+
+@inline get_y(fun::ExtendedPiecewiseLinear, i)=get_y(fun.fun_pl, i)
+@inline set_y!(fun::ExtendedPiecewiseLinear, i, y)=set_y!(fun.fun_pl, i, y)
+Base.@propagate_inbounds @inline Base.getindex(fun::ExtendedPiecewiseLinear, i)=getindex(fun.fun_pl, i)
 
 
 """
