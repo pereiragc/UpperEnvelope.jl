@@ -25,6 +25,6 @@ plot!(p1, k2, [v2 w2], marker=(:x, :darkblue), line=(:dash, :darkblue), label="F
 plot!(p1,envelope[1], [envelope[2] envelope[3]], line=(:purple, 3), marker=(:diamond, :purple, 3), label="Upper envelope")
 plot(p0, p1, size=0.8.*(980, 440), dpi=190)
 
-# savefig("example.png")
+savefig("example.png")
 
 
