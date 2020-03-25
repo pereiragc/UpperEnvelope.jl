@@ -6,6 +6,21 @@
 # ---------------------------------
 
 
+abstract type AbstractPiecewiseLinear{T} end
+@inline Base.length(fun::AbstractPiecewiseLinear)=length(get_x(fun))
+@inline Base.eltype(fun::AbstractPiecewiseLinear{T}) where T=T
+function transfer_point!(pl_target, i_target,
+                      pl_source, i_source)
+    pl_target[i_target]=pl_source[i_source]
+    transfer_subordinate!(pl_target, i_target, pl_source, i_source)
+end
+@inline Base.setindex!(fun::AbstractPiecewiseLinear, pt, i)=begin
+    set_x!(fun, get_x(pt), i)
+    set_y!(fun, get_y(pt), i)
+end
+
+
+
 """
 # Piecewise linear function
 
@@ -29,7 +44,7 @@ must be of the same length.
 
 
 """
-mutable struct PiecewiseLinear{T}
+mutable struct PiecewiseLinear{T} <: AbstractPiecewiseLinear{T}
     xcoords::Vector{T}
     ycoords::Vector{T}
     function PiecewiseLinear(xcoords, ycoords)
@@ -39,27 +54,94 @@ mutable struct PiecewiseLinear{T}
 end
 
 # These methods contribute very little, except for readability later on.
-@inline Base.eltype(fun::PiecewiseLinear{T}) where T=T
-@inline Base.length(fun::PiecewiseLinear)=length(fun.xcoords)
-@inline Base.first(fun::PiecewiseLinear)=first(fun.xcoords)
-@inline Base.last(fun::PiecewiseLinear)=last(fun.xcoords)
-@inline Base.zero(fun::PiecewiseLinear{T}) where T=zero(T)
+@inline Base.Tuple(fun::PiecewiseLinear)=(get_x(fun), get_y(fun))
 @inline get_x(fun::PiecewiseLinear, i)=fun.xcoords[i]
-function set_x!(fun, i, x)
+@inline get_x(fun::PiecewiseLinear)=fun.xcoords
+function set_x!(fun::PiecewiseLinear, x, i)
     fun.xcoords[i]=x
     nothing
 end
 @inline get_y(fun::PiecewiseLinear, i)=fun.ycoords[i]
-function set_y!(fun, y, i)
-    fun.values[i]=y
+@inline get_y(fun::PiecewiseLinear)=fun.ycoords
+function set_y!(fun::PiecewiseLinear, y, i)
+    fun.ycoords[i]=y
     nothing
 end
 Base.@propagate_inbounds @inline Base.getindex(fun::PiecewiseLinear, i)=Point2(get_x(fun, i), get_y(fun, i))
 Base.resize!(fun::PiecewiseLinear, n)=begin
-    resize!(fun.xcoords, n);resize!(fun.ycoords, n);
+    resize!(get_x(fun), n);resize!(get_y(fun), n);
+    nothing
 end
-Base.Tuple(fun::PiecewiseLinear)=(fun.xcoords, fun.ycoords)
+function init_zeros(::Type{PiecewiseLinear{T}}, n) where T
+    PiecewiseLinear(fill(zero(T), n), fill(zero(T), n))
+end
+@inline function transfer_subordinate!(pl_target::PiecewiseLinear, i_target,
+                               pl_source::PiecewiseLinear, i_source)
+    nothing
+end
+function transfer_subordinate_combo!(fun_target::PiecewiseLinear, i_target,
+                                     fun_source::PiecewiseLinear, i_source,
+                                     weight) where {N,T}
+    nothing
+end
 
+
+"""
+# Extended piecewise linear function
+
+This type extends PiecewiseLinear by including an additional set of `y values`
+(elements of `subordinate_vectors`) to be discarded/extended based on the
+envelope procedure applied to `base_fun`.
+
+Indexing returns the _main_ (x,y) pair. If `F::ExtendedPiecewiseEnvelope`,
+then `F[i]` returns `F.base_fun[i]`.
+"""
+mutable struct ExtendedPiecewiseLinear{T, N} <: AbstractPiecewiseLinear{T}
+    base_fun::PiecewiseLinear{T}
+    subordinate_vectors::NTuple{N, Vector{T}}
+end
+@inline get_x(fun::ExtendedPiecewiseLinear)=get_x(fun.base_fun)
+@inline get_x(fun::ExtendedPiecewiseLinear, i)=get_x(fun.base_fun, i)
+@inline set_x!(fun::ExtendedPiecewiseLinear, x, i)=set_x!(fun.base_fun, x, i)
+
+@inline get_y(fun::ExtendedPiecewiseLinear, i)=get_y(fun.base_fun, i)
+@inline set_y!(fun::ExtendedPiecewiseLinear, y, i)=set_y!(fun.base_fun, y, i)
+Base.@propagate_inbounds @inline Base.getindex(fun::ExtendedPiecewiseLinear, i)=getindex(fun.base_fun, i)
+@inline Base.resize!(fun::ExtendedPiecewiseLinear, n)=begin
+    resize!(fun.base_fun, n);
+    map(fun.subordinate_vectors) do x
+        resize!(x, n)
+    end
+    nothing
+end
+@inline Base.Tuple(fun::ExtendedPiecewiseLinear)=(Tuple(fun.base_fun)..., fun.subordinate_vectors...)
+
+function init_zeros(::Type{ExtendedPiecewiseLinear{T, N}}, n) where {T, N}
+    pl = init_zeros(PiecewiseLinear{T}, n)
+    subord = ntuple(Val(N)) do _
+        fill(zero(T), n)
+    end
+    ExtendedPiecewiseLinear{T,N}(pl, subord)
+end
+@inline function transfer_subordinate!(pl_target::ExtendedPiecewiseLinear{T, N}, i_target,
+                               pl_source::ExtendedPiecewiseLinear{T, N}, i_source) where {N, T}
+    @inbounds for j in 1:N
+        pl_target.subordinate_vectors[j][i_target] = pl_source.subordinate_vectors[j][i_source]
+    end
+    nothing
+end
+
+@inline function transfer_subordinate_combo!(fun_target::ExtendedPiecewiseLinear{T,N}, i_target,
+                                     fun_source::ExtendedPiecewiseLinear{T,N}, i_source,
+                                     weight) where {N,T}
+    @assert i_source > 1
+
+    @inbounds for j in 1:N
+        z = fun_source.subordinate_vectors[j][i_source-1]*weight
+        z += fun_source.subordinate_vectors[j][i_source]*(1-weight)
+        fun_target.subordinate_vectors[j][i_target] = z
+    end
+end
 
 
 """
@@ -76,16 +158,15 @@ struct Point2{T}
 end
 @inline get_x(pt::Point2)=pt.x
 @inline get_y(pt::Point2)=pt.y
-@inline Base.setindex!(fun::PiecewiseLinear, pt, i)=begin
-    fun.xcoords[i]=pt.x
-    fun.ycoords[i]=pt.y
-end
+
+
+
 
 
 Base.Tuple(u::Point2)=(u.x, u.y)
 Base.:+(u::Point2, v::Point2)=Point2(u.x+v.x, u.y+v.y)
-Base.:*(u::Point2, k)=Point2(k*u.x, k*u.y)
-Base.:*(k, u::Point2)=Base.:*(u, k)
+Base.:*(u::Point2, k::Number)=Point2(k*u.x, k*u.y)
+Base.:*(k::Number, u::Point2)=Base.:*(u, k)
 Base.:-(u::Point2, v::Point2)=Point2(u.x - v.x, u.y - v.y)
 
 " 90deg counter clockwise rotation "
@@ -118,23 +199,35 @@ or not, and to compute intersections.
 When all comparison segments are analysed, switch the states between functions:
 the benchmark function becomes the comparison one and vice-versa. If this step
 is ignored, intersections **will be** overlooked.
+
+
+## Notation
+
+- `k` denotes the current state. It is either 1 or 2.
+- `other(k)` returns 2 if `k == 1`, or 1 if `k==2`.
+
 """
-function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear}, remove_nan=true)
+function compute_envelope(pl_funcs::NTuple{2, T}, trim_empty=true) where T <: AbstractPiecewiseLinear
     envsize_max = length(pl_funcs[1]) + length(pl_funcs[2]) +
         max(length(pl_funcs[1]), length(pl_funcs[2]))
-    envelope = PiecewiseLinear(map(k -> fill(NaN, envsize_max), (1,2))...)
 
-    @inbounds seg_state = determine_first(pl_funcs)
+    envelope = init_zeros(T, envsize_max)
+    #  ^ Initialize an instance of piecewise linear with size envsize_max, filled with NaN
+
+    @inbounds k = determine_first(pl_funcs)
     v_idx_visit = [1, 1]
     i_env = 1
 
     # Deal the left part of (possibly) non-intersecting domains
-    while is_lower_x(pl_funcs, seg_state, v_idx_visit)
-        if v_idx_visit[seg_state] < length(pl_funcs[seg_state])
-            this_ind = v_idx_visit[seg_state]
-            pt = pl_funcs[seg_state][this_ind]
-            envelope[i_env]=pt; i_env += 1
-            inc_counter!(v_idx_visit, seg_state)
+    while is_lower_x(pl_funcs, k, v_idx_visit)
+        if v_idx_visit[k] < length(pl_funcs[k])
+            this_ind = v_idx_visit[k]
+
+            transfer_point!(envelope, i_env, pl_funcs[k], this_ind); i_env += 1
+            # pt = pl_funcs[k][this_ind]
+            # envelope[i_env]=pt;
+
+            inc_counters!(v_idx_visit, k)
         else
             break
         end
@@ -144,19 +237,24 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear}, remove_nan=true)
     n_iter=1
     reached_maxlen = false
     while  !reached_maxlen && (get_x(pl_funcs[1], v_idx_visit[1]) == get_x(pl_funcs[2], v_idx_visit[2]))
-        if get_y(pl_funcs[1], v_idx_visit[1]) > get_y(pl_funcs[2], v_idx_visit[2])
-            envelope[i_env]=pl_funcs[1][v_idx_visit[1]]; i_env += 1
-        else
-            envelope[i_env]=pl_funcs[2][v_idx_visit[2]]; i_env += 1
-        end
+
+        fun_better = get_y(pl_funcs[1], v_idx_visit[1]) >
+            get_y(pl_funcs[2], v_idx_visit[2]) ? 1 : 2
+
+
+        # envelope[i_env] = ifelse(first_is_better, pl_funcs[1][v_idx_visit[1]],
+        #                          pl_funcs[2][v_idx_visit[2]])
+        transfer_point!(envelope, i_env, pl_funcs[fun_better][v_idx_visit[fun_better]])
+        i_env += 1
 
         reached_maxlen = v_idx_visit[1] == length(pl_funcs[1]) || v_idx_visit[2] == length(pl_funcs[2])
 
         if !reached_maxlen
-            i_env += segment_intersect!(envelope, i_env,
-                                        pl_funcs[1][n_iter], pl_funcs[1][n_iter+1],
-                                        pl_funcs[2][n_iter], pl_funcs[2][n_iter+1])
-            inc_counter!(v_idx_visit)
+            # i_env += segment_intersect!(envelope, i_env,
+            #                             pl_funcs[1][n_iter], pl_funcs[1][n_iter+1],
+            #                             pl_funcs[2][n_iter], pl_funcs[2][n_iter+1])
+            i_env += segment_intersect!(envelope, i_env, pl_funcs, 1, n_iter+1, n_iter+1)
+            inc_counters!(v_idx_visit)
         end
         n_iter += 1
     end
@@ -166,63 +264,72 @@ function compute_envelope(pl_funcs::NTuple{2, PiecewiseLinear}, remove_nan=true)
     end
 
     # Irregular x values
-    @inbounds seg_state = determine_first(pl_funcs, v_idx_visit)
+    @inbounds k = determine_first(pl_funcs, v_idx_visit)
     @inbounds while (v_idx_visit[1] <= length(pl_funcs[1])) && (v_idx_visit[2] <= length(pl_funcs[2]))
-        @inbounds i_curr = v_idx_visit[seg_state]
-        @inbounds i_other = v_idx_visit[other(seg_state)]
+        i_curr = v_idx_visit[k]
+        i_other = v_idx_visit[other(k)]
 
-        @inbounds pt_curr = pl_funcs[seg_state][i_curr]
-        @inbounds pt_other = pl_funcs[other(seg_state)][i_other]
-        @inbounds pt_other_prev = pl_funcs[other(seg_state)][i_other-1] # TODO: Could this be saved from prev iteration?
 
+        # First step: compute the "score" of the current point under analysis
+        # (will: (I) determine whether point is included, (II) be used in
+        # computing a potential intersection)
+        pt_curr = pl_funcs[k][i_curr];
+        pt_other = pl_funcs[other(k)][i_other]
+        pt_other_prev = pl_funcs[other(k)][i_other-1]
         sco = inner_rotate(pt_curr - pt_other_prev, pt_other - pt_other_prev)
 
         if sco > 0
-            envelope[i_env]=pt_curr; i_env += 1
+            transfer_point!(envelope, i_env, pl_funcs[k], i_curr)
+            i_env += 1
         end
 
-        if i_curr + 1 > length(pl_funcs[seg_state])
-            seg_state = other(seg_state)
+        if i_curr + 1 > length(pl_funcs[k])
+            k = other(k)
             break
         end
 
-        pt_curr_next = pl_funcs[seg_state][i_curr+1]
+        i_env += segment_intersect!(envelope, i_env, sco, pl_funcs, k, i_curr+1, i_other)
+        inc_counters!(v_idx_visit, k)
 
-        i_env += segment_intersect!(envelope, i_env, sco, pt_other_prev, pt_other, pt_curr, pt_curr_next)
-        inc_counter!(v_idx_visit, seg_state)
-
-        if get_x(pt_curr_next) >= get_x(pt_other)
-            seg_state = other(seg_state)
+        if get_x(pl_funcs[k][i_curr+1]) >= get_x(pt_other)
+            k = other(k)
         end
-
     end
 
     # Now finalize by adding all rightmost nodes
-    while v_idx_visit[seg_state] <= length(pl_funcs[seg_state])
-        envelope[i_env]=pl_funcs[seg_state][v_idx_visit[seg_state]]; i_env += 1
-        inc_counter!(v_idx_visit, seg_state)
+    while v_idx_visit[k] <= length(pl_funcs[k])
+        transfer_point!(envelope, i_env, pl_funcs[k], v_idx_visit[k]); i_env += 1
+        inc_counters!(v_idx_visit, k)
     end
 
     # Remove NaN entries if specified
-    remove_nan && resize!(envelope, i_env-1)
+    trim_empty && resize!(envelope, i_env-1)
     return envelope
 end
 
 
-compute_envelope(tup_pts1, tup_pts2, remove_nan=true)=begin
-    Tuple(compute_envelope((PiecewiseLinear(tup_pts1...), PiecewiseLinear(tup_pts2...)),
-                           remove_nan))
+# Convenience method
+compute_envelope(tup_pts1, tup_pts2, trim_empty=true)=begin
+    Tuple(compute_envelope((construct_piecewiselinear(tup_pts1...), construct_piecewiselinear(tup_pts2...)),
+                           trim_empty))
 end
 
 
+function construct_piecewiselinear(a1, a2, rest...)
+    ExtendedPiecewiseLinear(construct_piecewiselinear(a1, a2), rest)
+end
+
+function construct_piecewiselinear(a1, a2)
+    PiecewiseLinear(a1, a2)
+end
 
 
 # * Auxiliary functions
 " Returns 1 if `i==2`, and 2 if `i==1`."
 other(i)=3-i
 
-inc_counter!(v_idx, i)=v_idx[i] += 1
-inc_counter!(v_idx)=begin
+inc_counters!(v_idx, i)=v_idx[i] += 1
+inc_counters!(v_idx)=begin
     v_idx[1] += 1; v_idx[2] += 1;
 end
 
@@ -231,12 +338,12 @@ end
 Check that the x value is lower for the current than the alternative state at
 indexes given by v_idx_visit.
 """
-function is_lower_x(pl_funcs, seg_state, v_idx_visit)
-    seg_other = other(seg_state)
+function is_lower_x(pl_funcs, k, v_idx_visit)
+    fun_other = other(k)
 
-    @inbounds i_curr = v_idx_visit[seg_state]
-    @inbounds i_other = v_idx_visit[seg_other]
-    get_x(pl_funcs[seg_state], i_curr) < get_x(pl_funcs[seg_other], i_other)
+    @inbounds i_curr = v_idx_visit[k]
+    @inbounds i_other = v_idx_visit[fun_other]
+    get_x(pl_funcs[k], i_curr) < get_x(pl_funcs[fun_other], i_other)
 end
 
 
@@ -247,6 +354,44 @@ Base.@propagate_inbounds function determine_first(pl_funcs, init_ind=(1, 1))
     end
     return r
 end
+
+
+function segment_intersect!(pl_target, i_target, sco, pl_funcs, k, i_curr, i_other)
+    ptA1 = pl_funcs[other(k)][i_other-1]
+    ptA2 = pl_funcs[other(k)][i_other]
+    ptB1 = pl_funcs[k][i_curr-1]
+    ptB2 = pl_funcs[k][i_curr]
+
+    P = ptA2 - ptA1
+    Q = ptB2 - ptB1
+    R = ptB2 - ptA1
+
+    sco_cmp = inner_rotate(R, P)
+
+    if sign(sco_cmp) == sign(sco)
+        return false
+    end
+
+    bb = sco_cmp/(sco_cmp - sco)
+    intersection_candidate = bb * ptB1 + (1-bb) * ptB2
+    r = get_x(intersection_candidate) < get_x(ptA2)
+    # r = bb*get_x(ptB1) + (1 - bb)*get_x(ptB2) < get_x(ptA2)
+
+    if r
+        pl_target[i_target] = intersection_candidate
+        transfer_subordinate_combo!(pl_target, i_target, pl_funcs[k], i_curr, bb)
+    end
+
+    return r
+end
+
+
+segment_intersect!(v_store, pos_store, ptA1, ptA2, ptB1, ptB2)=begin
+    segment_intersect!(v_store, pos_store,
+                       inner_rotate(ptB1-ptA1, ptA2-ptA1),
+                       ptA1, ptA2, ptB1, ptB2)
+end
+
 
 """
     segment_intersect!(v_store, pos_store, sco, ptA1, ptA2, ptB1, ptB2)
@@ -267,7 +412,7 @@ Formally, `sco` is the inner product of the 90 deg counter-clockwise
 rotation of `P` (as defined below) with `B1 - A1`.
 
 """
-function segment_intersect!(v_store, pos_store, sco, ptA1, ptA2, ptB1, ptB2)
+function segment_intersect!(v_store, pos_store, sco, ptA1::Point2, ptA2::Point2, ptB1::Point2, ptB2::Point2)
 
     P = ptA2 - ptA1
     Q = ptB2 - ptB1
@@ -293,10 +438,4 @@ function segment_intersect!(v_store, pos_store, sco, ptA1, ptA2, ptB1, ptB2)
     end
 
     return r
-end
-
-segment_intersect!(v_store, pos_store, ptA1, ptA2, ptB1, ptB2)=begin
-    segment_intersect!(v_store, pos_store,
-                       inner_rotate(ptB1-ptA1, ptA2-ptA1),
-                       ptA1, ptA2, ptB1, ptB2)
 end
