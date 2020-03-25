@@ -9,7 +9,17 @@
 abstract type AbstractPiecewiseLinear{T} end
 @inline Base.length(fun::AbstractPiecewiseLinear)=length(get_x(fun))
 @inline Base.eltype(fun::AbstractPiecewiseLinear{T}) where T=T
-Base.Tuple(fun::AbstractPiecewiseLinear)=(get_x(fun), get_y(fun))
+function transfer_point!(pl_target, i_target,
+                      pl_source, i_source)
+    pl_target[i_target]=pl_source[i_source]
+    transfer_subordinate!(pl_target, i_target, pl_source, i_source)
+end
+@inline Base.setindex!(fun::AbstractPiecewiseLinear, pt, i)=begin
+    set_x!(fun, get_x(pt), i)
+    set_y!(fun, get_y(pt), i)
+end
+
+
 
 """
 # Piecewise linear function
@@ -44,16 +54,17 @@ mutable struct PiecewiseLinear{T} <: AbstractPiecewiseLinear{T}
 end
 
 # These methods contribute very little, except for readability later on.
+@inline Base.Tuple(fun::PiecewiseLinear)=(get_x(fun), get_y(fun))
 @inline get_x(fun::PiecewiseLinear, i)=fun.xcoords[i]
 @inline get_x(fun::PiecewiseLinear)=fun.xcoords
-function set_x!(fun::PiecewiseLinear, i, x)
+function set_x!(fun::PiecewiseLinear, x, i)
     fun.xcoords[i]=x
     nothing
 end
 @inline get_y(fun::PiecewiseLinear, i)=fun.ycoords[i]
 @inline get_y(fun::PiecewiseLinear)=fun.ycoords
 function set_y!(fun::PiecewiseLinear, y, i)
-    fun.values[i]=y
+    fun.ycoords[i]=y
     nothing
 end
 Base.@propagate_inbounds @inline Base.getindex(fun::PiecewiseLinear, i)=Point2(get_x(fun, i), get_y(fun, i))
@@ -64,27 +75,47 @@ end
 function init_zeros(::Type{PiecewiseLinear{T}}, n) where T
     PiecewiseLinear(fill(zero(T), n), fill(zero(T), n))
 end
+@inline function transfer_subordinate!(pl_target::PiecewiseLinear, i_target,
+                               pl_source::PiecewiseLinear, i_source)
+    nothing
+end
+function transfer_subordinate_combo!(fun_target::PiecewiseLinear, i_target,
+                                     fun_source::PiecewiseLinear, i_source,
+                                     weight) where {N,T}
+    nothing
+end
 
 
+"""
+# Extended piecewise linear function
 
+This type extends PiecewiseLinear by including an additional set of `y values`
+(elements of `subordinate_vectors`) to be discarded/extended based on the
+envelope procedure applied to `base_fun`.
+
+Indexing returns the _main_ (x,y) pair. If `F::ExtendedPiecewiseEnvelope`,
+then `F[i]` returns `F.base_fun[i]`.
+"""
 mutable struct ExtendedPiecewiseLinear{T, N} <: AbstractPiecewiseLinear{T}
-    fun_pl::PiecewiseLinear{T}
+    base_fun::PiecewiseLinear{T}
     subordinate_vectors::NTuple{N, Vector{T}}
 end
-@inline get_x(fun::ExtendedPiecewiseLinear)=get_x(fun.fun_pl)
-@inline get_x(fun::ExtendedPiecewiseLinear, i)=get_x(fun.fun_pl, i)
-@inline set_x!(fun::ExtendedPiecewiseLinear, i, x)=set_x!(fun.fun_pl, i, x)
+@inline get_x(fun::ExtendedPiecewiseLinear)=get_x(fun.base_fun)
+@inline get_x(fun::ExtendedPiecewiseLinear, i)=get_x(fun.base_fun, i)
+@inline set_x!(fun::ExtendedPiecewiseLinear, x, i)=set_x!(fun.base_fun, x, i)
 
-@inline get_y(fun::ExtendedPiecewiseLinear, i)=get_y(fun.fun_pl, i)
-@inline set_y!(fun::ExtendedPiecewiseLinear, i, y)=set_y!(fun.fun_pl, i, y)
-Base.@propagate_inbounds @inline Base.getindex(fun::ExtendedPiecewiseLinear, i)=getindex(fun.fun_pl, i)
-Base.resize!(fun::ExtendedPiecewiseLinear, n)=begin
-    resize!(fun.fun_pl, n);
+@inline get_y(fun::ExtendedPiecewiseLinear, i)=get_y(fun.base_fun, i)
+@inline set_y!(fun::ExtendedPiecewiseLinear, y, i)=set_y!(fun.base_fun, y, i)
+Base.@propagate_inbounds @inline Base.getindex(fun::ExtendedPiecewiseLinear, i)=getindex(fun.base_fun, i)
+@inline Base.resize!(fun::ExtendedPiecewiseLinear, n)=begin
+    resize!(fun.base_fun, n);
     map(fun.subordinate_vectors) do x
         resize!(x, n)
     end
     nothing
 end
+@inline Base.Tuple(fun::ExtendedPiecewiseLinear)=(Tuple(fun.base_fun)..., fun.subordinate_vectors...)
+
 function init_zeros(::Type{ExtendedPiecewiseLinear{T, N}}, n) where {T, N}
     pl = init_zeros(PiecewiseLinear{T}, n)
     subord = ntuple(Val(N)) do _
@@ -92,8 +123,25 @@ function init_zeros(::Type{ExtendedPiecewiseLinear{T, N}}, n) where {T, N}
     end
     ExtendedPiecewiseLinear{T,N}(pl, subord)
 end
+@inline function transfer_subordinate!(pl_target::ExtendedPiecewiseLinear{T, N}, i_target,
+                               pl_source::ExtendedPiecewiseLinear{T, N}, i_source) where {N, T}
+    @inbounds for j in 1:N
+        pl_target.subordinate_vectors[j][i_target] = pl_source.subordinate_vectors[j][i_source]
+    end
+    nothing
+end
 
+@inline function transfer_subordinate_combo!(fun_target::ExtendedPiecewiseLinear{T,N}, i_target,
+                                     fun_source::ExtendedPiecewiseLinear{T,N}, i_source,
+                                     weight) where {N,T}
+    @assert i_source > 1
 
+    @inbounds for j in 1:N
+        z = fun_source.subordinate_vectors[j][i_source-1]*weight
+        z += fun_source.subordinate_vectors[j][i_source]*(1-weight)
+        fun_target.subordinate_vectors[j][i_target] = z
+    end
+end
 
 
 """
@@ -110,16 +158,15 @@ struct Point2{T}
 end
 @inline get_x(pt::Point2)=pt.x
 @inline get_y(pt::Point2)=pt.y
-@inline Base.setindex!(fun::PiecewiseLinear, pt, i)=begin
-    fun.xcoords[i]=pt.x
-    fun.ycoords[i]=pt.y
-end
+
+
+
 
 
 Base.Tuple(u::Point2)=(u.x, u.y)
 Base.:+(u::Point2, v::Point2)=Point2(u.x+v.x, u.y+v.y)
-Base.:*(u::Point2, k)=Point2(k*u.x, k*u.y)
-Base.:*(k, u::Point2)=Base.:*(u, k)
+Base.:*(u::Point2, k::Number)=Point2(k*u.x, k*u.y)
+Base.:*(k::Number, u::Point2)=Base.:*(u, k)
 Base.:-(u::Point2, v::Point2)=Point2(u.x - v.x, u.y - v.y)
 
 " 90deg counter clockwise rotation "
